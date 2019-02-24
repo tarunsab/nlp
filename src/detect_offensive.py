@@ -2,26 +2,23 @@ import sys
 import csv
 import re
 import numpy
+import torch
 import matplotlib.pyplot as plt
+from WordRNN import RNN
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
-from sklearn.svm import LinearSVC
 from sklearn.metrics import confusion_matrix
 
 def case_normalization(msg):
     return msg.strip().lower()
 
-def get_word_sequence(msg):
-    return filter(None, re.split('[ ,.!]', msg))
-
-def remove_stopwords(msg, stopwords):
-    non_stopwords = filter(lambda word : word not in stopwords, get_word_sequence(msg))
-    return ' '.join(non_stopwords)
+def remove_delimiters(msg):
+    return ' '.join(filter(None, re.split('[ ,.!]', msg)))
 
 def pre_process_msg(msg):
-    return ' '.join(get_word_sequence(case_normalization(msg)))
+    return remove_delimiters(case_normalization(msg))
 
 def parse_data(input_path):
-    with open(input_path) as fd:
+    with open(input_path, 'r') as fd:
         rd = csv.reader(fd, delimiter='\t', quotechar='"')
         fields = rd.next()
         data = {}
@@ -33,17 +30,20 @@ def parse_data(input_path):
         return data
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2:
-        input_path = sys.argv[1]
-        dataset = parse_data(input_path)
-        tweet_data = map(pre_process_msg, dataset['tweet'])
-        target_data = dataset['subtask_a']
+    if len(sys.argv) == 3:
+        # Parse the csv files into appropriate datasets
+        training_dataset = parse_data(sys.argv[1])
+        testing_dataset = parse_data(sys.argv[2])
+
+        id_values = training_dataset['id']
+        tweet_data = map(pre_process_msg, training_dataset['tweet'])
+        off_categories = training_dataset['subtask_a']
 
         break_point = len(tweet_data) // 10
         training_data = tweet_data[:-break_point]
-        training_target = target_data[:-break_point]
-        testing_data = tweet_data[-break_point:]
-        testing_target = target_data[-break_point:]
+        training_target = off_categories[:-break_point]
+        validation_data = tweet_data[-break_point:]
+        validation_target = off_categories[-break_point:]
 
         # Vectorizer that prioritises words based on frequency of occurence
         vectorizer1 = CountVectorizer (
@@ -57,19 +57,25 @@ if __name__ == '__main__':
             preprocessor=pre_process_msg
         )
 
-        # Compose feature vectors from Bag of Words and vectorizer
+        # Compose feature vectors from Bag of Words and vectorizer.
+        # fit_transform learns the word vocabulary and transforms
+        # the data into a one hot vector
         training_features = vectorizer2.fit_transform(training_data)
-        testing_features = vectorizer2.transform(testing_data)
+        validation_features = vectorizer2.transform(validation_data)
 
-        # Use support vector classification to accompany the large
-        # Bag of Words feature vectors used
-        model = LinearSVC()
-        model.fit(training_features, training_target)
-        pred = model.predict(testing_features)
+        pred = validation_target
 
-        cm = confusion_matrix(testing_target, pred)
+        # Write predictions into output csv file
+        csvData = []
+        for i, id_val in enumerate(id_values[-break_point:]):
+            csvData.append([id_val, pred[i]])
+        with open('predictions.csv', 'w') as csvFile:
+            writer = csv.writer(csvFile)
+            writer.writerows(csvData)
+
 
         # Temporary plot of Confusion Matrix
+        cm = confusion_matrix(validation_target, pred)
         plt.clf()
         plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Wistia)
         classNames = ['Negative','Positive']
@@ -84,5 +90,6 @@ if __name__ == '__main__':
             for j in range(2):
                 plt.text(j, i, str(cm[i][j]))
         plt.show()
+
     else:
-        print("Usage: python detect_offensive.py <data_file>")
+        print("Usage: python detect_offensive.py <training_data_file> <testing_data_file>")
