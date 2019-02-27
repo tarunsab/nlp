@@ -171,16 +171,14 @@ if __name__ == '__main__':
     cm = confusion_matrix(validation_target, preds)
     plt.clf()
     plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Wistia)
-    classNames = ['Negative','Positive']
-    tick_marks = np.arange(len(classNames))
-    plt.xticks(tick_marks, classNames)
-    plt.yticks(tick_marks, classNames)
+    tick_marks = np.arange(len(class2label))
+    plt.xticks(tick_marks, class2label)
+    plt.yticks(tick_marks, class2label)
     plt.title('Offensive or Not Offensive Confusion Matrix - Test Data')
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
-    s = [['TN','FP'], ['FN', 'TP']]
-    for i in range(2):
-        for j in range(2):
+    for i in range(len(class2label)):
+        for j in range(len(class2label)):
             plt.text(j, i, str(cm[i][j]))
     plt.show()
 
