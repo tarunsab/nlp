@@ -55,11 +55,11 @@ def get_model_inputs(tokenized_corpus, word2idx, max_len, labels = []):
     return sent_tensor, label_tensor
 
 def predict_value(input_tensor, num_of_classes):
-    prediction = torch.sigmoid(model(input_tensor))
-    return int(prediction.item() * num_of_classes)
+    prediction = torch.sigmoid(model(input_tensor)).item()
+    return num_of_classes - 1 if prediction == 1 else int(prediction * num_of_classes)
 
 if __name__ == '__main__':
-
+    # Check that the relevant data files as passed as parameters
     if len(sys.argv) != 3:
         print("Usage: python detect_offensive.py <training_data_file> <testing_data_file>")
         sys.exit(1)
@@ -69,10 +69,20 @@ if __name__ == '__main__':
     testing_dataset = parse_data(sys.argv[2])
 
     model_corpus = map(pre_process_msg, model_dataset['tweet'])
+    labels = model_dataset['subtask_a']
     testing_corpus = map(pre_process_msg, testing_dataset['tweet'])
 
+    # Filter out data that is not relevant to the subtask
+    filtered_corpus = []
+    filtered_labels = []
+    for i, (tweet, label) in enumerate(zip(model_corpus, labels)):
+        if label != "NULL":
+            filtered_corpus.append(tweet)
+            filtered_labels.append(label)
+    model_corpus = filtered_corpus
+    labels = filtered_labels
+
     # Generate classes for each label
-    labels = model_dataset['subtask_a']
     class2label = []
     label2class = {}
     for label in labels:
@@ -92,10 +102,11 @@ if __name__ == '__main__':
     validation_size = model_size // 10
     start = random.randint(0, model_size) // 10
     end = start + validation_size
+    excess = max(end - model_size, 0)
     training_corpus = model_corpus[:start] + model_corpus[end:]
     training_target = classes[:start] + classes[end:]
-    validation_corpus = model_corpus[start : end] + model_corpus[:end - model_size]
-    validation_target = classes[start : end] + classes[:end - model_size]
+    validation_corpus = model_corpus[start : end] + model_corpus[:excess]
+    validation_target = classes[start : end] + classes[:excess]
 
     # Other pre-processing helper variables
     USE_CUDA = torch.cuda.is_available()
@@ -122,9 +133,9 @@ if __name__ == '__main__':
     BATCH_SIZE = 100
 
     # Initialise RNN model
+    device = torch.device('cuda:0' if USE_CUDA else 'cpu')
     model = RNN(len(word2idx), EMBEDDING_SIZE, HIDDEN_LAYER_SIZE, OUTPUT_DIM, N_LAYERS, BIDIRECTIONAL, DROPOUT)
-    if USE_CUDA:
-        model = model.to('cuda')
+    model = model.to(device)
 
     loss_function = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=LR)
@@ -138,8 +149,8 @@ if __name__ == '__main__':
         print("Starting batch loop...")
         for i in range(0, len(training_data_tensor), BATCH_SIZE):
             model.zero_grad()
-            inputs = training_data_tensor[i : i + BATCH_SIZE].permute(1, 0)
-            targets = training_label_tensor[i : i + BATCH_SIZE].unsqueeze(1)
+            inputs = training_data_tensor[i : i + BATCH_SIZE].permute(1, 0).to(device)
+            targets = training_label_tensor[i : i + BATCH_SIZE].unsqueeze(1).to(device)
             preds = model(inputs)
             loss = loss_function(preds, targets)
             losses.append(loss.item())
@@ -157,7 +168,7 @@ if __name__ == '__main__':
     print("PREDICTING LABELS ON VALIDATION DATA")
     for validation_input in validation_data_tensor:
         model.zero_grad()
-        predicted_class = predict_value(validation_input.unsqueeze(1), len(class2label))
+        predicted_class = predict_value(validation_input.unsqueeze(1).to(device), len(class2label))
         preds.append(predicted_class)
     print("COMPLETED VALIDATION DATA LABEL PREDICTION")
 
@@ -174,7 +185,7 @@ if __name__ == '__main__':
     tick_marks = np.arange(len(class2label))
     plt.xticks(tick_marks, class2label)
     plt.yticks(tick_marks, class2label)
-    plt.title('Offensive or Not Offensive Confusion Matrix - Test Data')
+    plt.title('Offensive or Not Offensive Confusion Matrix - Validation Data')
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
     for i in range(len(class2label)):
@@ -188,7 +199,7 @@ if __name__ == '__main__':
     print("PREDICTING TESTING LABELS NOW")
     for testing_input in testing_data_tensor:
         model.zero_grad()
-        predicted_label = class2label[predict_value(testing_input.unsqueeze(1), len(class2label))]
+        predicted_label = class2label[predict_value(testing_input.unsqueeze(1).to(device), len(class2label))]
         preds.append(predicted_label)
     print("FINISHED PREDICTING TESTING LABELS")
 
