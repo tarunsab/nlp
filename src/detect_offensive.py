@@ -1,4 +1,4 @@
-from RNN import RNN
+from rnn import RNN
 import sys
 import csv
 import re
